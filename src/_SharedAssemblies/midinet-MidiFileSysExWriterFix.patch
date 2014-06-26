@@ -1,0 +1,37 @@
+--- Code/CannedBytes.Midi.IO/MidiFileStreamWriter.cs	2013-01-26 23:32:57.612790100 +0900
++++ Code/CannedBytes.Midi.IO/MidiFileStreamWriter.cs	2013-01-27 08:22:14.736562200 +0900
+@@ -116,11 +116,30 @@
+ 
+             this.WriteVariableLength((uint)deltaTime);
+ 
+-            // length of data
+-            this.WriteVariableLength((uint)data.Length);
++            if (data.Length > 0 && data[0] == 0xF0)
++            {
++                // sysex marker
++                this.writer.Write((byte)0xF0);
+ 
+-            // meta data
+-            this.writer.Write(data);
++                // length of data
++                this.WriteVariableLength((uint)(data.Length - 1));
++
++                // meta data
++                byte[] dataTrimmed = new byte[data.Length - 1];
++                Array.Copy(data, 1, dataTrimmed, 0, data.Length - 1);
++                this.writer.Write(dataTrimmed);
++            }
++            else
++            {
++                // sysex continuation marker
++                this.writer.Write((byte)0xF7);
++
++                // length of data
++                this.WriteVariableLength((uint)data.Length);
++
++                // meta data
++                this.writer.Write(data);
++            }
+         }
+ 
+         /// <summary>

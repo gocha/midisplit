@@ -1,0 +1,22 @@
+--- Code/CannedBytes.Midi.Message/MidiControllerMessage.cs.bak	2013-01-05 05:47:04.359060700 +0900
++++ Code/CannedBytes.Midi.Message/MidiControllerMessage.cs	2013-01-26 20:06:30.659296900 +0900
+@@ -24,11 +24,14 @@
+                     "Cannot construct a MidiControllerMessage instance other than MidiChannelCommand.Controller.", "data");
+             }
+ 
+-            if (!Enum.IsDefined(typeof(MidiControllerType), (int)Parameter1))
+-            {
+-                throw new ArgumentException(
+-                    "Invalid type of controller specified in data.", "data");
+-            }
++            // gocha:
++            // Even if it's not a well-known controller type, it's still a valid midi message.
++            // I refuse this error check, to accept more MIDI file.
++            //if (!Enum.IsDefined(typeof(MidiControllerType), (int)Parameter1))
++            //{
++            //    throw new ArgumentException(
++            //        "Invalid type of controller specified in data.", "data");
++            //}
+         }
+ 
+         /// <summary>

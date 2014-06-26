@@ -1,0 +1,12 @@
+
+MidiSplit uses MIDI.NET C# library
+http://midinet.codeplex.com/
+
+I encountered a few problems of MIDI.NET during the development of MidiSplit.
+Therefore, I modified the library source code, and recompiled them.
+Changes are written in *.patch file. They are small, but important.
+
+How to build MIDI.NET is explained in VST.NET wiki page.
+http://vstnet.codeplex.com/wikipage?title=Building%20the%20Source%20Code
+VST.NET is another project by the author of MIDI.NET.
+Both they have similar structure, and the explanation is adaptable to MIDI.NET.
