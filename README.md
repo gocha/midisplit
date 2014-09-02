@@ -10,7 +10,6 @@ MidiSplit is effective for relocating tracks of a sequence that has only a limit
 Note
 ------------------------
 
-- MidiSplit splits track when it finds a program change. If other events (e.g. volume, pan, etc.) exist just before the program change, it will be left at the last of former track.
+- MidiSplit splits track when it finds a program change. Channel messages excluding notes (e.g. control changes) located before the program change, will also be moved to the new track.
 - Non-channel messages (e.g. sysex) will be kept in the input track.
 - Rhythm channel is processed as same as a melody channel.
-- Sequence with more than 16 channels is not supported.

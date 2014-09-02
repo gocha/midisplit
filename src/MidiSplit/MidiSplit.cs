@@ -84,106 +84,249 @@ namespace MidiSplit
             return midiOutData;
         }
 
+        protected struct MTrkChannelParam
+        {
+            public int MidiChannel;
+            public int ProgramNumber;
+            public int BankNumber;
+        }
+
         protected class MTrkChunkWithInstrInfo
         {
-            public int? MidiChannel;
-            public int? ProgramNumber;
+            public MTrkChannelParam Channel;
             public MTrkChunk Track;
+            public int SortIndex;
         }
 
         static IEnumerable<MTrkChunk> SplitMidiTrack(MTrkChunk midiTrackIn)
         {
             const int MaxChannels = 16;
             const int MaxNotes = 128;
-            int?[] currentProgramNumber = new int?[MaxChannels];
-            IList<MTrkChunkWithInstrInfo> trackInfos = new List<MTrkChunkWithInstrInfo>();
-            
-            // create default output track
-            trackInfos.Add(new MTrkChunkWithInstrInfo());
-            trackInfos[0].Track = new MTrkChunk();
-            trackInfos[0].Track.Events = new List<MidiFileEvent>();
 
-            // dispatch events from beginning
-            // (events must be sorted by absolute time)
-            MidiFileEvent midiLastEvent = null;
-            MTrkChunk[,] tracksWithMissingNoteOff = new MTrkChunk[MaxChannels, MaxNotes];
+            int midiEventIndex;
+            long absoluteEndTime = 0;
+            IDictionary<int, MTrkChannelParam> midiEventMapTo = new Dictionary<int, MTrkChannelParam>();
+
+            // initialize channel variables
+            int[] newBankNumber = new int[MaxChannels];
+            int[] currentBankNumber = new int[MaxChannels];
+            int[] currentProgramNumber = new int[MaxChannels];
+            int[] boundaryEventIndex = new int[MaxChannels];
+            int[] firstChannelEventIndex = new int[MaxChannels];
+            bool[] firstProgramChange = new bool[MaxChannels];
+            int[,] midiNoteOn = new int[MaxChannels, MaxNotes];
+            for (int channel = 0; channel < MaxChannels; channel++)
+            {
+                newBankNumber[channel] = 0;
+                currentBankNumber[channel] = 0;
+                currentProgramNumber[channel] = 0;
+                boundaryEventIndex[channel] = 0;
+                firstChannelEventIndex[channel] = -1;
+                firstProgramChange[channel] = true;
+                for (int note = 0; note < MaxNotes; note++)
+                {
+                    midiNoteOn[channel, note] = 0;
+                }
+            }
+
+            // pre-scan input events
+            midiEventIndex = 0;
             foreach (MidiFileEvent midiEvent in midiTrackIn.Events)
             {
-                MTrkChunk targetTrack = null;
+                // update the end time of the track
+                absoluteEndTime = midiEvent.AbsoluteTime;
 
-                // save the last event to verify end of track
-                midiLastEvent = midiEvent;
-
+                // dispatch message
                 if (midiEvent.Message is MidiChannelMessage)
                 {
                     MidiChannelMessage channelMessage = midiEvent.Message as MidiChannelMessage;
 
-                    // if this is the first channel message
-                    if (trackInfos[0].MidiChannel == null)
+                    // remember the first channel messeage index
+                    if (firstChannelEventIndex[channelMessage.MidiChannel] == -1)
                     {
-                        // set the channel number to the first track
-                        trackInfos[0].MidiChannel = channelMessage.MidiChannel;
+                        firstChannelEventIndex[channelMessage.MidiChannel] = midiEventIndex;
+
+                        // determine the output track temporalily,
+                        // for tracks that do not have any program changes
+                        MTrkChannelParam channelParam = new MTrkChannelParam();
+                        channelParam.MidiChannel = channelMessage.MidiChannel;
+                        channelParam.BankNumber = 0;
+                        channelParam.ProgramNumber = 0;
+                        midiEventMapTo[midiEventIndex] = channelParam;
                     }
 
-                    // update current patch #
-                    if (channelMessage.Command == MidiChannelCommand.ProgramChange)
+                    // dispatch channel message
+                    if (channelMessage.Command == MidiChannelCommand.NoteOff ||
+                        (channelMessage.Command == MidiChannelCommand.NoteOn && channelMessage.Parameter2 == 0))
                     {
-                        currentProgramNumber[channelMessage.MidiChannel] = channelMessage.Parameter1;
-                    }
+                        // note off
+                        byte noteNumber = channelMessage.Parameter1;
+                        if (midiNoteOn[channelMessage.MidiChannel, noteNumber] > 0)
+                        {
+                            // deactivate existing note
+                            midiNoteOn[channelMessage.MidiChannel, noteNumber]--;
 
-                    // the location to put expected note-off event needs to be determined by note-on location
-                    bool midiEventIsNoteOff = (channelMessage.Command == MidiChannelCommand.NoteOff ||
-                        (channelMessage.Command == MidiChannelCommand.NoteOn && channelMessage.Parameter2 == 0));
-                    if (midiEventIsNoteOff && tracksWithMissingNoteOff[channelMessage.MidiChannel, channelMessage.Parameter1] != null)
+                            // check if all notes are off
+                            bool allNotesOff = true;
+                            for (int note = 0; note < MaxNotes; note++)
+                            {
+                                if (midiNoteOn[channelMessage.MidiChannel, note] != 0)
+                                {
+                                    allNotesOff = false;
+                                    break;
+                                }
+                            }
+
+                            // save the trigger timing
+                            if (allNotesOff)
+                            {
+                                boundaryEventIndex[channelMessage.MidiChannel] = midiEventIndex + 1;
+                            }
+                        }
+                    }
+                    else if (channelMessage.Command == MidiChannelCommand.NoteOn)
                     {
-                        targetTrack = tracksWithMissingNoteOff[channelMessage.MidiChannel, channelMessage.Parameter1];
-                        tracksWithMissingNoteOff[channelMessage.MidiChannel, channelMessage.Parameter1] = null;
+                        // note on: activate note
+                        byte noteNumber = channelMessage.Parameter1;
+                        midiNoteOn[channelMessage.MidiChannel, noteNumber]++;
+                        boundaryEventIndex[channelMessage.MidiChannel] = midiEventIndex + 1;
+                    }
+                    else if (channelMessage.Command == MidiChannelCommand.ProgramChange)
+                    {
+                        // program change
+                        byte programNumber = channelMessage.Parameter1;
+                        currentBankNumber[channelMessage.MidiChannel] = newBankNumber[channelMessage.MidiChannel];
+                        currentProgramNumber[channelMessage.MidiChannel] = programNumber;
+
+                        // determine the output track
+                        MTrkChannelParam channelParam = new MTrkChannelParam();
+                        channelParam.MidiChannel = channelMessage.MidiChannel;
+                        channelParam.BankNumber = currentBankNumber[channelMessage.MidiChannel];
+                        channelParam.ProgramNumber = currentProgramNumber[channelMessage.MidiChannel];
+
+                        // switch the track from the last silence
+                        if (firstProgramChange[channelMessage.MidiChannel])
+                        {
+                            midiEventMapTo[firstChannelEventIndex[channelMessage.MidiChannel]] = channelParam;
+                            firstProgramChange[channelMessage.MidiChannel] = false;
+                        }
+                        else
+                        {
+                            midiEventMapTo[boundaryEventIndex[channelMessage.MidiChannel]] = channelParam;
+                        }
+
+                        // update the trigger timing
+                        boundaryEventIndex[channelMessage.MidiChannel] = midiEventIndex + 1;
+                    }
+                    else if (channelMessage.Command == MidiChannelCommand.ControlChange)
+                    {
+                        MidiControllerMessage controllerMessage = midiEvent.Message as MidiControllerMessage;
+
+                        // dispatch bank select
+                        if (controllerMessage.ControllerType == MidiControllerType.BankSelect)
+                        {
+                            newBankNumber[channelMessage.MidiChannel] &= ~(127 << 7);
+                            newBankNumber[channelMessage.MidiChannel] |= controllerMessage.Value << 7;
+                        }
+                        else if (controllerMessage.ControllerType == MidiControllerType.BankSelectFine)
+                        {
+                            newBankNumber[channelMessage.MidiChannel] &= ~127;
+                            newBankNumber[channelMessage.MidiChannel] |= controllerMessage.Value;
+                        }
+                    }
+                }
+
+                midiEventIndex++;
+            }
+
+            // create output tracks
+            IDictionary<MTrkChannelParam, MTrkChunk> trackAssociatedWith = new Dictionary<MTrkChannelParam, MTrkChunk>();
+            List<MTrkChunkWithInstrInfo> trackInfos = new List<MTrkChunkWithInstrInfo>();
+            if (midiEventMapTo.Count > 0)
+            {
+                foreach (KeyValuePair<int, MTrkChannelParam> aMidiEventMapTo in midiEventMapTo)
+                {
+                    //Console.WriteLine(String.Format("Event: {0}, Channel: {1}, Bank: {2}, Program: {3}",
+                    //    aMidiEventMapTo.Key, aMidiEventMapTo.Value.MidiChannel, aMidiEventMapTo.Value.BankNumber, aMidiEventMapTo.Value.ProgramNumber));
+                    if (!trackAssociatedWith.ContainsKey(aMidiEventMapTo.Value))
+                    {
+                        MTrkChunkWithInstrInfo trackInfo = new MTrkChunkWithInstrInfo();
+                        trackInfo.Track = new MTrkChunk();
+                        trackInfo.Track.Events = new List<MidiFileEvent>();
+                        trackInfo.Channel = aMidiEventMapTo.Value;
+                        trackInfo.SortIndex = trackInfos.Count;
+                        trackInfos.Add(trackInfo);
+                        trackAssociatedWith[aMidiEventMapTo.Value] = trackInfo.Track;
+                    }
+                }
+
+                // sort by channel number
+                trackInfos.Sort((a, b) => {
+                    if (a.Channel.MidiChannel != b.Channel.MidiChannel)
+                    {
+                        return a.Channel.MidiChannel - b.Channel.MidiChannel;
                     }
                     else
                     {
-                        // search target track
-                        int trackIndex;
-                        for (trackIndex = 0; trackIndex < trackInfos.Count; trackIndex++)
+                        return a.SortIndex - b.SortIndex;
+                    }
+                });
+            }
+            else
+            {
+                // special case: track does not have any channel messages
+                MTrkChunkWithInstrInfo trackInfo = new MTrkChunkWithInstrInfo();
+                trackInfo.Track = new MTrkChunk();
+                trackInfo.Track.Events = new List<MidiFileEvent>();
+                trackInfos.Add(trackInfo);
+            }
+
+            // start copying midi events
+            midiEventIndex = 0;
+            IDictionary<int, MTrkChunk> currentOutputTrack = new Dictionary<int, MTrkChunk>();
+            Queue<MTrkChunk>[,] notesAssociatedWithTrack = new Queue<MTrkChunk>[MaxChannels, MaxNotes];
+            foreach (MidiFileEvent midiEvent in midiTrackIn.Events)
+            {
+                MTrkChunk targetTrack = null;
+
+                // dispatch message
+                if (midiEvent.Message is MidiChannelMessage)
+                {
+                    MidiChannelMessage channelMessage = midiEvent.Message as MidiChannelMessage;
+
+                    // switch output track if necessary
+                    if (midiEventMapTo.ContainsKey(midiEventIndex))
+                    {
+                        MTrkChannelParam aMidiEventMapTo = midiEventMapTo[midiEventIndex];
+                        currentOutputTrack[aMidiEventMapTo.MidiChannel] = trackAssociatedWith[aMidiEventMapTo];
+                    }
+
+                    // determine output track
+                    targetTrack = currentOutputTrack[channelMessage.MidiChannel];
+
+                    // dispatch note on/off
+                    if (channelMessage.Command == MidiChannelCommand.NoteOff ||
+                        (channelMessage.Command == MidiChannelCommand.NoteOn && channelMessage.Parameter2 == 0))
+                    {
+                        // note off
+                        byte noteNumber = channelMessage.Parameter1;
+                        if (notesAssociatedWithTrack[channelMessage.MidiChannel, noteNumber] != null &&
+                            notesAssociatedWithTrack[channelMessage.MidiChannel, noteNumber].Count != 0)
                         {
-                            MTrkChunkWithInstrInfo trackInfo = trackInfos[trackIndex];
-
-                            if (trackInfo.MidiChannel == channelMessage.MidiChannel &&
-                                (trackInfo.ProgramNumber == null ||
-                                  trackInfo.ProgramNumber == currentProgramNumber[channelMessage.MidiChannel]))
-                            {
-                                // set program number (we need to set it for the first time)
-                                trackInfo.ProgramNumber = currentProgramNumber[channelMessage.MidiChannel];
-
-                                // target track is determined, exit the loop
-                                targetTrack = trackInfo.Track;
-                                break;
-                            }
-                            else if (trackInfo.MidiChannel > channelMessage.MidiChannel)
-                            {
-                                // track list is sorted by channel number
-                                // therefore, the rest isn't what we are searching for
-                                // a new track needs to be assigned to the current index
-                                break;
-                            }
+                            targetTrack = notesAssociatedWithTrack[channelMessage.MidiChannel, noteNumber].Dequeue();
                         }
-
-                        // add a new track if necessary
-                        if (targetTrack == null)
+                    }
+                    else if (channelMessage.Command == MidiChannelCommand.NoteOn)
+                    {
+                        // note on
+                        byte noteNumber = channelMessage.Parameter1;
+                        if (notesAssociatedWithTrack[channelMessage.MidiChannel, noteNumber] == null)
                         {
-                            MTrkChunkWithInstrInfo newTrackInfo = new MTrkChunkWithInstrInfo();
-                            newTrackInfo.Track = new MTrkChunk();
-                            newTrackInfo.Track.Events = new List<MidiFileEvent>();
-                            newTrackInfo.MidiChannel = channelMessage.MidiChannel;
-                            newTrackInfo.ProgramNumber = currentProgramNumber[channelMessage.MidiChannel];
-                            trackInfos.Insert(trackIndex, newTrackInfo);
-                            targetTrack = newTrackInfo.Track;
+                            // allocate a queue if not available
+                            notesAssociatedWithTrack[channelMessage.MidiChannel, noteNumber] = new Queue<MTrkChunk>();
                         }
-
-                        // remember new note, to know appropriate note-off location
-                        if (channelMessage.Command == MidiChannelCommand.NoteOn && channelMessage.Parameter2 != 0)
-                        {
-                            tracksWithMissingNoteOff[channelMessage.MidiChannel, channelMessage.Parameter1] = targetTrack;
-                        }
+                        // remember the output track
+                        notesAssociatedWithTrack[channelMessage.MidiChannel, noteNumber].Enqueue(targetTrack);
                     }
                 }
                 else
@@ -198,16 +341,11 @@ namespace MidiSplit
                     IList<MidiFileEvent> targetEventList = targetTrack.Events as IList<MidiFileEvent>;
                     targetEventList.Add(midiEvent);
                 }
+
+                midiEventIndex++;
             }
 
-            // determine the location of end of track
-            long absoluteTimeOfEndOfTrack = 0;
-            if (midiLastEvent != null)
-            {
-                absoluteTimeOfEndOfTrack = midiLastEvent.AbsoluteTime;
-            }
-
-            // construct the track list without extra info
+            // construct the plain track list
             IList<MTrkChunk> tracks = new List<MTrkChunk>();
             foreach (MTrkChunkWithInstrInfo trackInfo in trackInfos)
             {
@@ -218,7 +356,7 @@ namespace MidiSplit
             foreach (MTrkChunk track in tracks)
             { 
                 // fixup delta time artifically...
-                midiLastEvent = null;
+                MidiFileEvent midiLastEvent = null;
                 foreach (MidiFileEvent midiEvent in track.Events)
                 {
                     midiEvent.DeltaTime = midiEvent.AbsoluteTime - (midiLastEvent != null ? midiLastEvent.AbsoluteTime : 0);
@@ -227,8 +365,8 @@ namespace MidiSplit
 
                 // add end of track manually
                 MidiFileEvent endOfTrack = new MidiFileEvent();
-                endOfTrack.AbsoluteTime = absoluteTimeOfEndOfTrack;
-                endOfTrack.DeltaTime = absoluteTimeOfEndOfTrack - midiLastEvent.AbsoluteTime;
+                endOfTrack.AbsoluteTime = absoluteEndTime;
+                endOfTrack.DeltaTime = absoluteEndTime - midiLastEvent.AbsoluteTime;
                 endOfTrack.Message = new MidiMetaMessage(MidiMetaType.EndOfTrack, new byte[] { });
                 (track.Events as IList<MidiFileEvent>).Add(endOfTrack);
             }
