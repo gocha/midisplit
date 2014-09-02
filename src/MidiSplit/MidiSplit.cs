@@ -288,6 +288,7 @@ namespace MidiSplit
             foreach (MidiFileEvent midiEvent in midiTrackIn.Events)
             {
                 MTrkChunk targetTrack = null;
+                bool broadcastToAllTracks = false;
 
                 // dispatch message
                 if (midiEvent.Message is MidiChannelMessage)
@@ -332,14 +333,34 @@ namespace MidiSplit
                 else
                 {
                     targetTrack = trackInfos[0].Track;
+
+                    if (midiEvent.Message is MidiMetaMessage)
+                    {
+                        MidiMetaMessage metaMessage = midiEvent.Message as MidiMetaMessage;
+                        if ((byte)metaMessage.MetaType == 21) // Unofficial port select
+                        {
+                            broadcastToAllTracks = true;
+                        }
+                    }
                 }
 
                 // add event to the list, if it's not end of track
                 if (!(midiEvent.Message is MidiMetaMessage) ||
                     (midiEvent.Message as MidiMetaMessage).MetaType != MidiMetaType.EndOfTrack)
                 {
-                    IList<MidiFileEvent> targetEventList = targetTrack.Events as IList<MidiFileEvent>;
-                    targetEventList.Add(midiEvent);
+                    if (broadcastToAllTracks)
+                    {
+                        foreach (MTrkChunkWithInstrInfo trackInfo in trackInfos)
+                        {
+                            IList<MidiFileEvent> targetEventList = trackInfo.Track.Events as IList<MidiFileEvent>;
+                            targetEventList.Add(midiEvent);
+                        }
+                    }
+                    else
+                    {
+                        IList<MidiFileEvent> targetEventList = targetTrack.Events as IList<MidiFileEvent>;
+                        targetEventList.Add(midiEvent);
+                    }
                 }
 
                 midiEventIndex++;
@@ -366,7 +387,7 @@ namespace MidiSplit
                 // add end of track manually
                 MidiFileEvent endOfTrack = new MidiFileEvent();
                 endOfTrack.AbsoluteTime = absoluteEndTime;
-                endOfTrack.DeltaTime = absoluteEndTime - midiLastEvent.AbsoluteTime;
+                endOfTrack.DeltaTime = absoluteEndTime - (midiLastEvent != null ? midiLastEvent.AbsoluteTime : 0);
                 endOfTrack.Message = new MidiMetaMessage(MidiMetaType.EndOfTrack, new byte[] { });
                 (track.Events as IList<MidiFileEvent>).Add(endOfTrack);
             }
