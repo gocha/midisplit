@@ -84,6 +84,7 @@ namespace MidiSplit
             return midiOutData;
         }
 
+        // keys for switcing tracks
         protected struct MTrkChannelParam
         {
             public int MidiChannel;
@@ -95,7 +96,7 @@ namespace MidiSplit
         {
             public MTrkChannelParam Channel;
             public MTrkChunk Track;
-            public int SortIndex;
+            public int SortIndex; // a number used for stable sort
         }
 
         static IEnumerable<MTrkChunk> SplitMidiTrack(MTrkChunk midiTrackIn)
@@ -281,6 +282,23 @@ namespace MidiSplit
                 trackInfos.Add(trackInfo);
             }
 
+            // initialize controller slots
+            int[] newRPN = new int[MaxChannels];
+            int[] newNRPN = new int[MaxChannels];
+            bool[] dataEntryIsRPNData = new bool[MaxChannels];
+            IDictionary<int, int>[] currentControlValue = new IDictionary<int, int>[MaxChannels];
+            IDictionary<int, int>[] currentRPNValue = new IDictionary<int, int>[MaxChannels];
+            IDictionary<int, int>[] currentNRPNValue = new IDictionary<int, int>[MaxChannels];
+            for (int channel = 0; channel < MaxChannels; channel++)
+            {
+                newRPN[channel] = 0;
+                newNRPN[channel] = 0;
+                dataEntryIsRPNData[channel] = true;
+                currentControlValue[channel] = new Dictionary<int, int>();
+                currentRPNValue[channel] = new Dictionary<int, int>();
+                currentNRPNValue[channel] = new Dictionary<int, int>();
+            }
+
             // start copying midi events
             midiEventIndex = 0;
             IDictionary<int, MTrkChunk> currentOutputTrack = new Dictionary<int, MTrkChunk>();
@@ -298,8 +316,14 @@ namespace MidiSplit
                     // switch output track if necessary
                     if (midiEventMapTo.ContainsKey(midiEventIndex))
                     {
+                        // switch output track
                         MTrkChannelParam aMidiEventMapTo = midiEventMapTo[midiEventIndex];
                         currentOutputTrack[aMidiEventMapTo.MidiChannel] = trackAssociatedWith[aMidiEventMapTo];
+
+                        // clear controller values
+                        currentControlValue[aMidiEventMapTo.MidiChannel].Clear();
+                        currentRPNValue[aMidiEventMapTo.MidiChannel].Clear();
+                        currentNRPNValue[aMidiEventMapTo.MidiChannel].Clear();
                     }
 
                     // determine output track
@@ -328,6 +352,85 @@ namespace MidiSplit
                         }
                         // remember the output track
                         notesAssociatedWithTrack[channelMessage.MidiChannel, noteNumber].Enqueue(targetTrack);
+                    }
+                    // dispatch control changes (remember the data value)
+                    else if (channelMessage.Command == MidiChannelCommand.ControlChange)
+                    {
+                        MidiControllerMessage controllerMessage = midiEvent.Message as MidiControllerMessage;
+
+                        // bank select
+                        if (controllerMessage.ControllerType == MidiControllerType.BankSelect ||
+                            controllerMessage.ControllerType == MidiControllerType.BankSelectFine)
+                        {
+                            // ignore it
+                        }
+                        // RPN/NRPN
+                        else if (controllerMessage.ControllerType == MidiControllerType.RegisteredParameterCoarse)
+                        {
+                            newRPN[channelMessage.MidiChannel] &= ~(127 << 7);
+                            newRPN[channelMessage.MidiChannel] |= controllerMessage.Value << 7;
+                            dataEntryIsRPNData[channelMessage.MidiChannel] = true;
+                        }
+                        else if (controllerMessage.ControllerType == MidiControllerType.RegisteredParameterFine)
+                        {
+                            newRPN[channelMessage.MidiChannel] &= ~127;
+                            newRPN[channelMessage.MidiChannel] |= controllerMessage.Value;
+                            dataEntryIsRPNData[channelMessage.MidiChannel] = true;
+                        }
+                        else if (controllerMessage.ControllerType == MidiControllerType.NonregisteredParameterCoarse)
+                        {
+                            newNRPN[channelMessage.MidiChannel] &= ~(127 << 7);
+                            newNRPN[channelMessage.MidiChannel] |= controllerMessage.Value << 7;
+                            dataEntryIsRPNData[channelMessage.MidiChannel] = false;
+                        }
+                        else if (controllerMessage.ControllerType == MidiControllerType.NonregisteredParameterFine)
+                        {
+                            newNRPN[channelMessage.MidiChannel] &= ~127;
+                            newNRPN[channelMessage.MidiChannel] |= controllerMessage.Value;
+                            dataEntryIsRPNData[channelMessage.MidiChannel] = false;
+                        }
+                        // Data Entry
+                        else if (controllerMessage.ControllerType == MidiControllerType.DataEntrySlider ||
+                            controllerMessage.ControllerType == MidiControllerType.DataEntrySliderFine)
+                        {
+                            // RPN or NRPN?
+                            IDictionary<int, int> currentValue;
+                            int targetSlot;
+                            if (dataEntryIsRPNData[channelMessage.MidiChannel])
+                            {
+                                currentValue = currentRPNValue[channelMessage.MidiChannel];
+                                targetSlot = newRPN[channelMessage.MidiChannel];
+                            }
+                            else
+                            {
+                                currentValue = currentNRPNValue[channelMessage.MidiChannel];
+                                targetSlot = newNRPN[channelMessage.MidiChannel];
+                            }
+
+                            // MSB or LSB?
+                            int bitShift = 0;
+                            if (controllerMessage.ControllerType == MidiControllerType.DataEntrySlider)
+                            {
+                                bitShift = 7;
+                            }
+
+                            // save the data value
+                            if (currentValue.ContainsKey(targetSlot))
+                            {
+                                currentValue[targetSlot] &= ~(127 << bitShift);
+                                currentValue[targetSlot] |= controllerMessage.Value << bitShift;
+                            }
+                            else
+                            {
+                                currentValue[targetSlot] = controllerMessage.Value << bitShift;
+                            }
+                        }
+                        // anything else
+                        else
+                        {
+                            IDictionary<int, int> currentValue = currentControlValue[channelMessage.MidiChannel];
+                            currentValue[(int)controllerMessage.ControllerType] = controllerMessage.Value;
+                        }
                     }
                 }
                 else
