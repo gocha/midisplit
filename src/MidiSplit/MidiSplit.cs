@@ -130,6 +130,7 @@ namespace MidiSplit
             public IDictionary<int, int> ControlValue;
             public IDictionary<int, int> RPNValue;
             public IDictionary<int, int> NRPNValue;
+            public int PitchBendValue;
             public int? CurrentRPN;
             public int? CurrentNRPN;
 
@@ -140,6 +141,7 @@ namespace MidiSplit
                 NRPNValue = new Dictionary<int, int>();
                 CurrentRPN = null;
                 CurrentNRPN = null;
+                PitchBendValue = 0;
             }
 
             public MidiChannelStatus(MidiChannelStatus previousStatus)
@@ -149,6 +151,7 @@ namespace MidiSplit
                 NRPNValue = new Dictionary<int, int>(previousStatus.NRPNValue);
                 CurrentRPN = previousStatus.CurrentRPN;
                 CurrentNRPN = previousStatus.CurrentNRPN;
+                PitchBendValue = previousStatus.PitchBendValue;
             }
 
             public void AddControllerMessage(MTrkChunk midiTrack, long absoluteTime, int channel, MidiControllerType controller, int value)
@@ -553,14 +556,8 @@ namespace MidiSplit
                     {
                         MidiControllerMessage controllerMessage = midiEvent.Message as MidiControllerMessage;
 
-                        // bank select
-                        if (controllerMessage.ControllerType == MidiControllerType.BankSelect ||
-                            controllerMessage.ControllerType == MidiControllerType.BankSelectFine)
-                        {
-                            // ignore it
-                        }
                         // RPN/NRPN
-                        else if (controllerMessage.ControllerType == MidiControllerType.RegisteredParameterCoarse)
+                        if (controllerMessage.ControllerType == MidiControllerType.RegisteredParameterCoarse)
                         {
                             if (!status[channelMessage.MidiChannel].CurrentRPN.HasValue)
                             {
@@ -643,12 +640,48 @@ namespace MidiSplit
                                 }
                             }
                         }
+                        // Reset All Controllers
+                        else if (controllerMessage.ControllerType == MidiControllerType.AllControllersOff)
+                        {
+                            // See: General MIDI Level 2 Recommended Practice (RP024)
+                            MidiChannelStatus st = status[channelMessage.MidiChannel];
+                            st.ControlValue[(int)MidiControllerType.ModulationWheel] = 0;
+                            st.ControlValue[(int)MidiControllerType.Expression] = 127;
+                            st.ControlValue[(int)MidiControllerType.HoldPedal] = 0;
+                            st.ControlValue[(int)MidiControllerType.Portamento] = 0;
+                            st.ControlValue[(int)MidiControllerType.SustenutoPedal] = 0;
+                            st.ControlValue[(int)MidiControllerType.SoftPedal] = 0;
+                            st.CurrentRPN = null; // 0x3fff
+                            st.PitchBendValue = 0;
+                            // Channel pressure 0 (off)
+                        }
                         // anything else
-                        else
+                        else if (controllerMessage.ControllerType != MidiControllerType.BankSelect &&
+                            controllerMessage.ControllerType != MidiControllerType.BankSelectFine &&
+                            controllerMessage.ControllerType != MidiControllerType.AllSoundOff &&
+                            controllerMessage.ControllerType != MidiControllerType.LocalKeyboard &&
+                            controllerMessage.ControllerType != MidiControllerType.AllNotesOff &&
+                            controllerMessage.ControllerType != MidiControllerType.OmniModeOff &&
+                            controllerMessage.ControllerType != MidiControllerType.OmniModeOn &&
+                            controllerMessage.ControllerType != MidiControllerType.MonoOperation &&
+                            controllerMessage.ControllerType != MidiControllerType.PolyOperation)
                         {
                             IDictionary<int, int> currentValue = status[channelMessage.MidiChannel].ControlValue;
                             currentValue[(int)controllerMessage.ControllerType] = controllerMessage.Value;
                         }
+                    }
+                    else if (channelMessage.Command == MidiChannelCommand.PitchWheel)
+                    {
+                        int pitchBendValue = (channelMessage.Parameter1 | (channelMessage.Parameter2 << 7)) - 8192;
+                        status[channelMessage.MidiChannel].PitchBendValue = pitchBendValue;
+                    }
+                    else if (channelMessage.Command == MidiChannelCommand.ChannelPressure)
+                    {
+                        // not supported
+                    }
+                    else if (channelMessage.Command == MidiChannelCommand.PolyPressure)
+                    {
+                        // not supported
                     }
                 }
                 else
