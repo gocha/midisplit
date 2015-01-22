@@ -66,6 +66,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="FileReaderFactory.cs" />
+    <Compile Include="MidiChannelStatus.cs" />
     <Compile Include="MidiFileData.cs" />
     <Compile Include="MidiFileSerializer.cs" />
     <Compile Include="MidiSplit.cs" />
