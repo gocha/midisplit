@@ -130,7 +130,7 @@ namespace MidiSplit
             public IDictionary<int, int> ControlValue;
             public IDictionary<int, int> RPNValue;
             public IDictionary<int, int> NRPNValue;
-            public int PitchBendValue;
+            public int? PitchBendValue;
             public int? CurrentRPN;
             public int? CurrentNRPN;
 
@@ -141,7 +141,7 @@ namespace MidiSplit
                 NRPNValue = new Dictionary<int, int>();
                 CurrentRPN = null;
                 CurrentNRPN = null;
-                PitchBendValue = 0;
+                PitchBendValue = null;
             }
 
             public MidiChannelStatus(MidiChannelStatus previousStatus)
@@ -159,6 +159,19 @@ namespace MidiSplit
                 IList<MidiFileEvent> midiEvents = midiTrack.Events as IList<MidiFileEvent>;
                 MidiMessageFactory midiMessageFactory = new MidiMessageFactory();
                 MidiControllerMessage message = midiMessageFactory.CreateControllerMessage((byte)channel, controller, (byte)value);
+                MidiFileEvent midiEvent = new MidiFileEvent();
+                midiEvent.AbsoluteTime = absoluteTime;
+                midiEvent.Message = message;
+                midiEvents.Add(midiEvent);
+            }
+
+            public void AddPitchWheelMessage(MTrkChunk midiTrack, long absoluteTime, int channel, int value)
+            {
+                value = Math.Max(0, Math.Min(0x3fff, value + 8192));
+
+                IList<MidiFileEvent> midiEvents = midiTrack.Events as IList<MidiFileEvent>;
+                MidiMessageFactory midiMessageFactory = new MidiMessageFactory();
+                MidiChannelMessage message = midiMessageFactory.CreateChannelMessage(MidiChannelCommand.PitchWheel, (byte)channel, (byte)(value & 0x7f), (byte)((value >> 7) & 0x7f));
                 MidiFileEvent midiEvent = new MidiFileEvent();
                 midiEvent.AbsoluteTime = absoluteTime;
                 midiEvent.Message = message;
@@ -225,11 +238,19 @@ namespace MidiSplit
                     updatedNRPNValue.Add(control);
                 }
 
+                // control change
                 foreach (var control in updatedControlValue)
                 {
                     AddControllerMessage(midiTrack, absoluteTime, channel, (MidiControllerType)control.Key, (byte)control.Value);
                 }
 
+                // pitch bend
+                if (PitchBendValue.HasValue && (previousStatus == null || previousStatus.PitchBendValue != PitchBendValue))
+                {
+                    AddPitchWheelMessage(midiTrack, absoluteTime, channel, PitchBendValue.Value);
+                }
+
+                // RPN
                 foreach (var control in updatedRPNValue)
                 {
                     // process write for current RPN at last, not now
@@ -253,6 +274,7 @@ namespace MidiSplit
                     }
                 }
 
+                // NRPN
                 foreach (var control in updatedNRPNValue)
                 {
                     IDictionary<int, int> previousValue = (previousStatus != null) ? previousStatus.NRPNValue : null;
@@ -651,7 +673,7 @@ namespace MidiSplit
                             st.ControlValue[(int)MidiControllerType.Portamento] = 0;
                             st.ControlValue[(int)MidiControllerType.SustenutoPedal] = 0;
                             st.ControlValue[(int)MidiControllerType.SoftPedal] = 0;
-                            st.CurrentRPN = null; // 0x3fff
+                            st.CurrentRPN = 0x3fff;
                             st.PitchBendValue = 0;
                             // Channel pressure 0 (off)
                         }
