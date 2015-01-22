@@ -318,7 +318,7 @@ namespace MidiSplit
                         {
                             AddRPNMessage(midiTrack, absoluteTime, channel, CurrentRPN.Value, RPNValue[CurrentRPN.Value]);
                         }
-                        else
+                        else if (previousStatus == null || CurrentRPN != previousStatus.CurrentRPN)
                         {
                             AddRPNMessage(midiTrack, absoluteTime, channel, CurrentRPN.Value, null);
                         }
@@ -347,7 +347,7 @@ namespace MidiSplit
                         {
                             AddNRPNMessage(midiTrack, absoluteTime, channel, CurrentNRPN.Value, NRPNValue[CurrentNRPN.Value]);
                         }
-                        else
+                        else if (previousStatus == null || CurrentNRPN != previousStatus.CurrentNRPN)
                         {
                             AddNRPNMessage(midiTrack, absoluteTime, channel, CurrentNRPN.Value, null);
                         }

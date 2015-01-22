@@ -8,6 +8,7 @@ using CannedBytes.Media.IO;
 using CannedBytes.Midi;
 using CannedBytes.Midi.IO;
 using CannedBytes.Midi.Message;
+using System.Text.RegularExpressions;
 
 namespace MidiSplit
 {
@@ -20,12 +21,14 @@ namespace MidiSplit
                 string midiInFilePath = null;
                 string midiOutFilePath = null;
                 bool copySeparatedControllers = false;
+                IList<int> percMidiChannels = new List<int>();
+                IList<int> percProgChanges = new List<int>();
 
                 // parse options
                 int argIndex = 0;
                 while (argIndex < args.Length && args[argIndex].StartsWith("-"))
                 {
-                    string option = args[argIndex];
+                    string option = args[argIndex++];
                     if (option == "--help")
                     {
                         ShowUsage();
@@ -34,6 +37,96 @@ namespace MidiSplit
                     else if (option == "-cs" || option == "--copy-separated")
                     {
                         copySeparatedControllers = true;
+                    }
+                    else if (option == "-sp" || option == "--split-note")
+                    {
+                        if (argIndex + 1 >= args.Length)
+                        {
+                            Console.WriteLine("Too few arguments for " + option);
+                            return 1;
+                        }
+
+                        string[] targets = args[argIndex].Split(',');
+                        foreach (var target_ in targets)
+                        {
+                            string target = target_.Trim();
+                            if (target.StartsWith("ch"))
+                            {
+                                int midiChannel;
+                                if (!int.TryParse(target.Substring(2), out midiChannel))
+                                {
+                                    Console.WriteLine("Invalid channel number format for " + option);
+                                    return 1;
+                                }
+
+                                if (midiChannel < 1 || midiChannel > 16)
+                                {
+                                    Console.WriteLine("Invalid channel number for " + option + " (valid range is 1..16)");
+                                    return 1;
+                                }
+                                midiChannel--;
+
+                                if (!percMidiChannels.Contains(midiChannel))
+                                {
+                                    percMidiChannels.Add(midiChannel);
+                                }
+                            }
+                            else if (target.StartsWith("prg"))
+                            {
+                                string param = target.Trim().Substring(3);
+                                int progChange;
+                                int bankMSB = 0;
+                                int bankLSB = 0;
+
+                                try
+                                {
+                                    if (Regex.IsMatch(param, "\\d+:\\d+:\\d+", RegexOptions.ECMAScript))
+                                    {
+                                        string[] tokens = param.Split(':');
+                                        bankMSB = int.Parse(tokens[0]);
+                                        bankLSB = int.Parse(tokens[1]);
+                                        progChange = int.Parse(tokens[2]);
+                                    }
+                                    else
+                                    {
+                                        progChange = int.Parse(param);
+                                    }
+                                }
+                                catch (FormatException)
+                                {
+                                    Console.WriteLine("Invalid program number format for " + option);
+                                    return 1;
+                                }
+
+                                if (progChange < 1 || progChange > 128)
+                                {
+                                    Console.WriteLine("Invalid program number for " + option + " (valid range is 1..128)");
+                                    return 1;
+                                }
+                                if (bankMSB < 0 || bankMSB > 127)
+                                {
+                                    Console.WriteLine("Invalid bank MSB for " + option + " (valid range is 0..127)");
+                                    return 1;
+                                }
+                                if (bankLSB < 0 || bankLSB > 127)
+                                {
+                                    Console.WriteLine("Invalid bank LSB for " + option + " (valid range is 0..127)");
+                                    return 1;
+                                }
+                                progChange--;
+
+                                int progChangeWithBank = progChange + (bankLSB << 7) + (bankMSB << 14);
+                                if (!percProgChanges.Contains(progChangeWithBank))
+                                {
+                                    percProgChanges.Add(progChangeWithBank);
+                                }
+                            }
+                            else
+                            {
+                                Console.WriteLine("Invalid parameter \"" + target + "\" for option " + option);
+                                return 1;
+                            }
+                        }
                         argIndex++;
                     }
                     else
@@ -74,7 +167,7 @@ namespace MidiSplit
                 Console.WriteLine("Output midi file: " + midiOutFilePath);
 
                 MidiFileData midiInData = MidiSplit.ReadMidiFile(midiInFilePath);
-                MidiFileData midiOutData = MidiSplit.SplitMidiFile(midiInData, copySeparatedControllers);
+                MidiFileData midiOutData = MidiSplit.SplitMidiFile(midiInData, copySeparatedControllers, percMidiChannels, percProgChanges);
                 using (MidiFileSerializer midiFileSerializer = new MidiFileSerializer(midiOutFilePath))
                 {
                     midiFileSerializer.Serialize(midiOutData);
@@ -95,10 +188,21 @@ namespace MidiSplit
             Console.WriteLine("### Options");
             Console.WriteLine();
             Console.WriteLine("- `-cs` `--copy-separated`: Copy controller events that are updated by other tracks.");
+            Console.WriteLine("- `-sp targets` `--split-note targets`: Split given channel/instrument into each note numbers. Example: `-p \"ch10, prg127, prg127:0:1\"`");
         }
 
-        static MidiFileData SplitMidiFile(MidiFileData midiInData, bool copySeparatedControllers)
+        static MidiFileData SplitMidiFile(MidiFileData midiInData, bool copySeparatedControllers, IList<int> percMidiChannels, IList<int> percProgChanges)
         {
+            if (percMidiChannels == null)
+            {
+                percMidiChannels = new List<int>();
+            }
+
+            if (percProgChanges == null)
+            {
+                percProgChanges = new List<int>();
+            }
+
             MidiFileData midiOutData = new MidiFileData();
             midiOutData.Header = new MThdChunk();
             midiOutData.Header.Format = (ushort)MidiFileFormat.MultipleTracks;
@@ -107,7 +211,7 @@ namespace MidiSplit
             IList<MTrkChunk> tracks = new List<MTrkChunk>();
             foreach (MTrkChunk midiTrackIn in midiInData.Tracks)
             {
-                foreach (MTrkChunk midiTrackOut in MidiSplit.SplitMidiTrack(midiTrackIn, true))
+                foreach (MTrkChunk midiTrackOut in MidiSplit.SplitMidiTrack(midiTrackIn, true, percMidiChannels, percProgChanges))
                 {
                     tracks.Add(midiTrackOut);
                 }
@@ -123,6 +227,7 @@ namespace MidiSplit
             public int MidiChannel;
             public int ProgramNumber;
             public int BankNumber;
+            public int NoteNumber;
         }
 
         protected class MTrkChunkWithInfo
@@ -133,8 +238,18 @@ namespace MidiSplit
             public MidiChannelStatus Status;
         }
 
-        static IEnumerable<MTrkChunk> SplitMidiTrack(MTrkChunk midiTrackIn, bool copySeparatedControllers)
+        static IEnumerable<MTrkChunk> SplitMidiTrack(MTrkChunk midiTrackIn, bool copySeparatedControllers, IList<int> percMidiChannels, IList<int> percProgChanges)
         {
+            if (percMidiChannels == null)
+            {
+                percMidiChannels = new List<int>();
+            }
+
+            if (percProgChanges == null)
+            {
+                percProgChanges = new List<int>();
+            }
+
             const int MaxChannels = 16;
             const int MaxNotes = 128;
 
@@ -146,18 +261,20 @@ namespace MidiSplit
             int[] newBankNumber = new int[MaxChannels];
             int[] currentBankNumber = new int[MaxChannels];
             int[] currentProgramNumber = new int[MaxChannels];
-            int[] boundaryEventIndex = new int[MaxChannels];
+            int[] lastNoteNumber = new int[MaxChannels];
             int[] firstChannelEventIndex = new int[MaxChannels];
-            bool[] firstProgramChange = new bool[MaxChannels];
+            int[] boundaryEventIndex = new int[MaxChannels];
+            int[] lastTrackMapIndex = new int[MaxChannels];
             int[,] midiNoteOn = new int[MaxChannels, MaxNotes];
             for (int channel = 0; channel < MaxChannels; channel++)
             {
                 newBankNumber[channel] = 0;
                 currentBankNumber[channel] = 0;
                 currentProgramNumber[channel] = 0;
-                boundaryEventIndex[channel] = 0;
                 firstChannelEventIndex[channel] = -1;
-                firstProgramChange[channel] = true;
+                lastNoteNumber[channel] = -1;
+                boundaryEventIndex[channel] = 0;
+                lastTrackMapIndex[channel] = -1;
                 for (int note = 0; note < MaxNotes; note++)
                 {
                     midiNoteOn[channel, note] = 0;
@@ -180,6 +297,8 @@ namespace MidiSplit
                 {
                     MidiChannelMessage channelMessage = midiEvent.Message as MidiChannelMessage;
                     byte midiChannel = channelMessage.MidiChannel;
+                    bool percussion = percMidiChannels.Contains(midiChannel) ||
+                        percProgChanges.Contains(currentProgramNumber[midiChannel] | (currentBankNumber[midiChannel] << 7));
 
                     // remember the first channel messeage index
                     if (firstChannelEventIndex[midiChannel] == -1)
@@ -192,6 +311,7 @@ namespace MidiSplit
                         channelParam.MidiChannel = midiChannel;
                         channelParam.BankNumber = 0;
                         channelParam.ProgramNumber = 0;
+                        channelParam.NoteNumber = -1;
                         midiEventMapTo[midiEventIndex] = channelParam;
                     }
 
@@ -229,34 +349,69 @@ namespace MidiSplit
                         // note on: activate note
                         byte noteNumber = channelMessage.Parameter1;
                         midiNoteOn[midiChannel, noteNumber]++;
+
+                        if (percussion)
+                        {
+                            if (lastTrackMapIndex[midiChannel] == -1)
+                            {
+                                lastTrackMapIndex[midiChannel] = firstChannelEventIndex[midiChannel];
+                            }
+
+                            // check the most recent marker
+                            MTrkChannelParam channelParam = midiEventMapTo[lastTrackMapIndex[midiChannel]];
+                            if (channelParam.NoteNumber == -1)
+                            {
+                                channelParam.NoteNumber = noteNumber;
+                            }
+                            else if (channelParam.NoteNumber != noteNumber)
+                            {
+                                channelParam = new MTrkChannelParam();
+                                channelParam.MidiChannel = midiChannel;
+                                channelParam.BankNumber = currentBankNumber[midiChannel];
+                                channelParam.ProgramNumber = currentProgramNumber[midiChannel];
+                                channelParam.NoteNumber = noteNumber;
+
+                                lastTrackMapIndex[midiChannel] = boundaryEventIndex[midiChannel];
+                            }
+                            midiEventMapTo[lastTrackMapIndex[midiChannel]] = channelParam;
+                        }
+
                         boundaryEventIndex[midiChannel] = midiEventIndex + 1;
                     }
                     else if (channelMessage.Command == MidiChannelCommand.ProgramChange)
                     {
                         // program change
                         byte programNumber = channelMessage.Parameter1;
-                        currentBankNumber[midiChannel] = newBankNumber[midiChannel];
-                        currentProgramNumber[midiChannel] = programNumber;
-
-                        // determine the output track
-                        MTrkChannelParam channelParam = new MTrkChannelParam();
-                        channelParam.MidiChannel = midiChannel;
-                        channelParam.BankNumber = currentBankNumber[midiChannel];
-                        channelParam.ProgramNumber = currentProgramNumber[midiChannel];
-
-                        // switch the track from the last silence
-                        if (firstProgramChange[midiChannel])
+                        if (currentProgramNumber[midiChannel] != programNumber ||
+                            currentBankNumber[midiChannel] != newBankNumber[midiChannel])
                         {
-                            midiEventMapTo[firstChannelEventIndex[midiChannel]] = channelParam;
-                            firstProgramChange[midiChannel] = false;
-                        }
-                        else
-                        {
-                            midiEventMapTo[boundaryEventIndex[midiChannel]] = channelParam;
-                        }
+                            currentBankNumber[midiChannel] = newBankNumber[midiChannel];
+                            currentProgramNumber[midiChannel] = programNumber;
 
-                        // update the trigger timing
-                        boundaryEventIndex[midiChannel] = midiEventIndex + 1;
+                            // determine the output track
+                            MTrkChannelParam channelParam;
+                            if (lastTrackMapIndex[midiChannel] == -1)
+                            {
+                                channelParam = midiEventMapTo[firstChannelEventIndex[midiChannel]];
+                                channelParam.BankNumber = currentBankNumber[midiChannel];
+                                channelParam.ProgramNumber = currentProgramNumber[midiChannel];
+                                lastTrackMapIndex[midiChannel] = firstChannelEventIndex[midiChannel];
+                            }
+                            else
+                            {
+                                channelParam = new MTrkChannelParam();
+                                channelParam.MidiChannel = midiChannel;
+                                channelParam.BankNumber = currentBankNumber[midiChannel];
+                                channelParam.ProgramNumber = currentProgramNumber[midiChannel];
+                                channelParam.NoteNumber = -1; // will be filled later
+
+                                midiEventMapTo[boundaryEventIndex[midiChannel]] = channelParam;
+                                lastTrackMapIndex[midiChannel] = boundaryEventIndex[midiChannel];
+                            }
+
+                            // update the trigger timing
+                            boundaryEventIndex[midiChannel] = midiEventIndex + 1;
+                        }
                     }
                     else if (channelMessage.Command == MidiChannelCommand.ControlChange)
                     {
@@ -277,11 +432,32 @@ namespace MidiSplit
                 }
             }
 
-            // create output tracks
+            // prepare for midi event writing
             IDictionary<MTrkChannelParam, MTrkChunkWithInfo> trackAssociatedWith = new Dictionary<MTrkChannelParam, MTrkChunkWithInfo>();
             List<MTrkChunkWithInfo> trackInfos = new List<MTrkChunkWithInfo>();
             if (midiEventMapTo.Count > 0)
             {
+                // erase redundant items
+                MTrkChannelParam? lastChannelParam = null;
+                for (int midiEventIndex = 0; midiEventIndex < midiEventListIn.Count; midiEventIndex++)
+                {
+                    if (midiEventMapTo.ContainsKey(midiEventIndex))
+                    {
+                        //Console.WriteLine("event: " + midiEventIndex + ", channel: " + midiEventMapTo[midiEventIndex].MidiChannel + ", bank: " + midiEventMapTo[midiEventIndex].BankNumber + ", program: " + midiEventMapTo[midiEventIndex].ProgramNumber + ", note: " + midiEventMapTo[midiEventIndex].NoteNumber);
+
+                        // remove if item is exactly identical to previos one
+                        if (lastChannelParam.HasValue && midiEventMapTo[midiEventIndex].Equals(lastChannelParam.Value))
+                        {
+                            midiEventMapTo.Remove(midiEventIndex);
+                        }
+                        else
+                        {
+                            lastChannelParam = midiEventMapTo[midiEventIndex];
+                        }
+                    }
+                }
+
+                // create output tracks
                 foreach (KeyValuePair<int, MTrkChannelParam> aMidiEventMapTo in midiEventMapTo)
                 {
                     //Console.WriteLine(String.Format("Event: {0}, Channel: {1}, Bank: {2}, Program: {3}",
@@ -354,25 +530,28 @@ namespace MidiSplit
                             oldTrackInfo = currentOutputTrackInfo[channel];
                         }
 
-                        // switch output track
-                        currentOutputTrackInfo[channel] = newTrackInfo;
-
-                        // copy separated controller values
-                        if (copySeparatedControllers)
+                        if (oldTrackInfo != newTrackInfo)
                         {
-                            // readahead initialization events for new track (read until the first note on)
-                            MidiChannelStatus initStatus = new MidiChannelStatus();
-                            initStatus.DataEntryForRPN = status[channel].DataEntryForRPN;
-                            initStatus.ParseMidiEvents(midiEventListIn.Skip(midiEventIndex).TakeWhile(ev =>
-                                !(ev.Message is MidiChannelMessage && ((MidiChannelMessage)ev.Message).Command == MidiChannelCommand.NoteOn)), midiChannel);
+                            // switch output track
+                            currentOutputTrackInfo[channel] = newTrackInfo;
 
-                            status[channel].AddUpdatedMidiEvents(newTrackInfo.Track, newTrackInfo.Status, midiEvent.AbsoluteTime, channel, initStatus);
-                        }
+                            // copy separated controller values
+                            if (copySeparatedControllers)
+                            {
+                                // readahead initialization events for new track (read until the first note on)
+                                MidiChannelStatus initStatus = new MidiChannelStatus();
+                                initStatus.DataEntryForRPN = status[channel].DataEntryForRPN;
+                                initStatus.ParseMidiEvents(midiEventListIn.Skip(midiEventIndex).TakeWhile(ev =>
+                                    !(ev.Message is MidiChannelMessage && ((MidiChannelMessage)ev.Message).Command == MidiChannelCommand.NoteOn)), midiChannel);
 
-                        // save current controller values
-                        if (oldTrackInfo != null)
-                        {
-                            oldTrackInfo.Status = new MidiChannelStatus(status[channel]);
+                                status[channel].AddUpdatedMidiEvents(newTrackInfo.Track, newTrackInfo.Status, midiEvent.AbsoluteTime, channel, initStatus);
+                            }
+
+                            // save current controller values
+                            if (oldTrackInfo != null)
+                            {
+                                oldTrackInfo.Status = new MidiChannelStatus(status[channel]);
+                            }
                         }
                     }
 
