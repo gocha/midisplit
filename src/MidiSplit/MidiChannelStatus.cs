@@ -39,7 +39,7 @@ namespace MidiSplit
             DataEntryForRPN = previousStatus.DataEntryForRPN;
         }
 
-        public void ParseMidiEvents(IEnumerable<MidiFileEvent> midiEventList)
+        public void ParseMidiEvents(IEnumerable<MidiFileEvent> midiEventList, byte midiChannel)
         {
             foreach (var midiEvent in midiEventList)
             {
@@ -47,134 +47,137 @@ namespace MidiSplit
                 {
                     MidiChannelMessage channelMessage = midiEvent.Message as MidiChannelMessage;
 
-                    if (channelMessage.Command == MidiChannelCommand.ControlChange)
+                    if (channelMessage.MidiChannel == midiChannel)
                     {
-                        MidiControllerMessage controllerMessage = midiEvent.Message as MidiControllerMessage;
-
-                        if (controllerMessage.ControllerType == MidiControllerType.RegisteredParameterCoarse)
+                        if (channelMessage.Command == MidiChannelCommand.ControlChange)
                         {
-                            if (!CurrentRPN.HasValue)
-                            {
-                                CurrentRPN = 0;
-                            }
+                            MidiControllerMessage controllerMessage = midiEvent.Message as MidiControllerMessage;
 
-                            CurrentRPN &= ~(127 << 7);
-                            CurrentRPN |= controllerMessage.Value << 7;
-                            DataEntryForRPN = true;
-                        }
-                        else if (controllerMessage.ControllerType == MidiControllerType.RegisteredParameterFine)
-                        {
-                            if (!CurrentRPN.HasValue)
+                            if (controllerMessage.ControllerType == MidiControllerType.RegisteredParameterCoarse)
                             {
-                                CurrentRPN = 0;
-                            }
-
-                            CurrentRPN &= ~127;
-                            CurrentRPN |= controllerMessage.Value;
-                            DataEntryForRPN = true;
-                        }
-                        else if (controllerMessage.ControllerType == MidiControllerType.NonregisteredParameterCoarse)
-                        {
-                            if (!CurrentNRPN.HasValue)
-                            {
-                                CurrentNRPN = 0;
-                            }
-
-                            CurrentNRPN &= ~(127 << 7);
-                            CurrentNRPN |= controllerMessage.Value << 7;
-                            DataEntryForRPN = false;
-                        }
-                        else if (controllerMessage.ControllerType == MidiControllerType.NonregisteredParameterFine)
-                        {
-                            if (!CurrentNRPN.HasValue)
-                            {
-                                CurrentNRPN = 0;
-                            }
-
-                            CurrentNRPN &= ~127;
-                            CurrentNRPN |= controllerMessage.Value;
-                            DataEntryForRPN = false;
-                        }
-                        // Data Entry
-                        else if (controllerMessage.ControllerType == MidiControllerType.DataEntrySlider ||
-                            controllerMessage.ControllerType == MidiControllerType.DataEntrySliderFine)
-                        {
-                            // RPN or NRPN?
-                            IDictionary<int, int> currentValue;
-                            int? targetSlot;
-                            if (DataEntryForRPN)
-                            {
-                                currentValue = RPNValue;
-                                targetSlot = CurrentRPN;
-                            }
-                            else
-                            {
-                                currentValue = NRPNValue;
-                                targetSlot = CurrentNRPN;
-                            }
-
-                            // MSB or LSB?
-                            int bitShift = 0;
-                            if (controllerMessage.ControllerType == MidiControllerType.DataEntrySlider)
-                            {
-                                bitShift = 7;
-                            }
-
-                            // save the data value
-                            if (targetSlot.HasValue)
-                            {
-                                if (currentValue.ContainsKey(targetSlot.Value))
+                                if (!CurrentRPN.HasValue)
                                 {
-                                    currentValue[targetSlot.Value] &= ~(127 << bitShift);
-                                    currentValue[targetSlot.Value] |= controllerMessage.Value << bitShift;
+                                    CurrentRPN = 0;
+                                }
+
+                                CurrentRPN &= ~(127 << 7);
+                                CurrentRPN |= controllerMessage.Value << 7;
+                                DataEntryForRPN = true;
+                            }
+                            else if (controllerMessage.ControllerType == MidiControllerType.RegisteredParameterFine)
+                            {
+                                if (!CurrentRPN.HasValue)
+                                {
+                                    CurrentRPN = 0;
+                                }
+
+                                CurrentRPN &= ~127;
+                                CurrentRPN |= controllerMessage.Value;
+                                DataEntryForRPN = true;
+                            }
+                            else if (controllerMessage.ControllerType == MidiControllerType.NonregisteredParameterCoarse)
+                            {
+                                if (!CurrentNRPN.HasValue)
+                                {
+                                    CurrentNRPN = 0;
+                                }
+
+                                CurrentNRPN &= ~(127 << 7);
+                                CurrentNRPN |= controllerMessage.Value << 7;
+                                DataEntryForRPN = false;
+                            }
+                            else if (controllerMessage.ControllerType == MidiControllerType.NonregisteredParameterFine)
+                            {
+                                if (!CurrentNRPN.HasValue)
+                                {
+                                    CurrentNRPN = 0;
+                                }
+
+                                CurrentNRPN &= ~127;
+                                CurrentNRPN |= controllerMessage.Value;
+                                DataEntryForRPN = false;
+                            }
+                            // Data Entry
+                            else if (controllerMessage.ControllerType == MidiControllerType.DataEntrySlider ||
+                                controllerMessage.ControllerType == MidiControllerType.DataEntrySliderFine)
+                            {
+                                // RPN or NRPN?
+                                IDictionary<int, int> currentValue;
+                                int? targetSlot;
+                                if (DataEntryForRPN)
+                                {
+                                    currentValue = RPNValue;
+                                    targetSlot = CurrentRPN;
                                 }
                                 else
                                 {
-                                    currentValue[targetSlot.Value] = controllerMessage.Value << bitShift;
+                                    currentValue = NRPNValue;
+                                    targetSlot = CurrentNRPN;
+                                }
+
+                                // MSB or LSB?
+                                int bitShift = 0;
+                                if (controllerMessage.ControllerType == MidiControllerType.DataEntrySlider)
+                                {
+                                    bitShift = 7;
+                                }
+
+                                // save the data value
+                                if (targetSlot.HasValue)
+                                {
+                                    if (currentValue.ContainsKey(targetSlot.Value))
+                                    {
+                                        currentValue[targetSlot.Value] &= ~(127 << bitShift);
+                                        currentValue[targetSlot.Value] |= controllerMessage.Value << bitShift;
+                                    }
+                                    else
+                                    {
+                                        currentValue[targetSlot.Value] = controllerMessage.Value << bitShift;
+                                    }
                                 }
                             }
+                            // Reset All Controllers
+                            else if (controllerMessage.ControllerType == MidiControllerType.AllControllersOff)
+                            {
+                                // See: General MIDI Level 2 Recommended Practice (RP024)
+                                ControlValue[(int)MidiControllerType.ModulationWheel] = 0;
+                                ControlValue[(int)MidiControllerType.Expression] = 127;
+                                ControlValue[(int)MidiControllerType.HoldPedal] = 0;
+                                ControlValue[(int)MidiControllerType.Portamento] = 0;
+                                ControlValue[(int)MidiControllerType.SustenutoPedal] = 0;
+                                ControlValue[(int)MidiControllerType.SoftPedal] = 0;
+                                CurrentRPN = 0x3fff;
+                                PitchBendValue = 0;
+                                // Channel pressure 0 (off)
+                            }
+                            // anything else
+                            else if (controllerMessage.ControllerType != MidiControllerType.BankSelect &&
+                                controllerMessage.ControllerType != MidiControllerType.BankSelectFine &&
+                                controllerMessage.ControllerType != MidiControllerType.AllSoundOff &&
+                                controllerMessage.ControllerType != MidiControllerType.LocalKeyboard &&
+                                controllerMessage.ControllerType != MidiControllerType.AllNotesOff &&
+                                controllerMessage.ControllerType != MidiControllerType.OmniModeOff &&
+                                controllerMessage.ControllerType != MidiControllerType.OmniModeOn &&
+                                controllerMessage.ControllerType != MidiControllerType.MonoOperation &&
+                                controllerMessage.ControllerType != MidiControllerType.PolyOperation)
+                            {
+                                IDictionary<int, int> currentValue = ControlValue;
+                                currentValue[(int)controllerMessage.ControllerType] = controllerMessage.Value;
+                            }
                         }
-                        // Reset All Controllers
-                        else if (controllerMessage.ControllerType == MidiControllerType.AllControllersOff)
+                        else if (channelMessage.Command == MidiChannelCommand.PitchWheel)
                         {
-                            // See: General MIDI Level 2 Recommended Practice (RP024)
-                            ControlValue[(int)MidiControllerType.ModulationWheel] = 0;
-                            ControlValue[(int)MidiControllerType.Expression] = 127;
-                            ControlValue[(int)MidiControllerType.HoldPedal] = 0;
-                            ControlValue[(int)MidiControllerType.Portamento] = 0;
-                            ControlValue[(int)MidiControllerType.SustenutoPedal] = 0;
-                            ControlValue[(int)MidiControllerType.SoftPedal] = 0;
-                            CurrentRPN = 0x3fff;
-                            PitchBendValue = 0;
-                            // Channel pressure 0 (off)
+                            int pitchBendValue = (channelMessage.Parameter1 | (channelMessage.Parameter2 << 7)) - 8192;
+                            PitchBendValue = pitchBendValue;
                         }
-                        // anything else
-                        else if (controllerMessage.ControllerType != MidiControllerType.BankSelect &&
-                            controllerMessage.ControllerType != MidiControllerType.BankSelectFine &&
-                            controllerMessage.ControllerType != MidiControllerType.AllSoundOff &&
-                            controllerMessage.ControllerType != MidiControllerType.LocalKeyboard &&
-                            controllerMessage.ControllerType != MidiControllerType.AllNotesOff &&
-                            controllerMessage.ControllerType != MidiControllerType.OmniModeOff &&
-                            controllerMessage.ControllerType != MidiControllerType.OmniModeOn &&
-                            controllerMessage.ControllerType != MidiControllerType.MonoOperation &&
-                            controllerMessage.ControllerType != MidiControllerType.PolyOperation)
+                        else if (channelMessage.Command == MidiChannelCommand.ChannelPressure)
                         {
-                            IDictionary<int, int> currentValue = ControlValue;
-                            currentValue[(int)controllerMessage.ControllerType] = controllerMessage.Value;
+                            // not supported
                         }
-                    }
-                    else if (channelMessage.Command == MidiChannelCommand.PitchWheel)
-                    {
-                        int pitchBendValue = (channelMessage.Parameter1 | (channelMessage.Parameter2 << 7)) - 8192;
-                        PitchBendValue = pitchBendValue;
-                    }
-                    else if (channelMessage.Command == MidiChannelCommand.ChannelPressure)
-                    {
-                        // not supported
-                    }
-                    else if (channelMessage.Command == MidiChannelCommand.PolyPressure)
-                    {
-                        // not supported
+                        else if (channelMessage.Command == MidiChannelCommand.PolyPressure)
+                        {
+                            // not supported
+                        }
                     }
                 }
             }
@@ -226,7 +229,7 @@ namespace MidiSplit
             }
         }
 
-        public void AddUpdatedMidiEvents(MTrkChunk midiTrack, MidiChannelStatus previousStatus, long absoluteTime, int channel)
+        public void AddUpdatedMidiEvents(MTrkChunk midiTrack, MidiChannelStatus previousStatus, long absoluteTime, int channel, MidiChannelStatus excludeStatus)
         {
             IDictionary<int, int> updatedControlValue = new Dictionary<int, int>();
             foreach (var control in ControlValue)
@@ -234,6 +237,10 @@ namespace MidiSplit
                 IDictionary<int, int> previousValue = (previousStatus != null) ? previousStatus.ControlValue : null;
                 bool hasPreviousValue = previousValue != null && previousValue.ContainsKey(control.Key);
                 if (hasPreviousValue && previousValue[control.Key] == control.Value)
+                {
+                    continue;
+                }
+                if (excludeStatus != null && excludeStatus.ControlValue.ContainsKey(control.Key))
                 {
                     continue;
                 }
@@ -249,6 +256,10 @@ namespace MidiSplit
                 {
                     continue;
                 }
+                if (excludeStatus != null && excludeStatus.RPNValue.ContainsKey(control.Key))
+                {
+                    continue;
+                }
                 updatedRPNValue.Add(control);
             }
 
@@ -258,6 +269,10 @@ namespace MidiSplit
                 IDictionary<int, int> previousValue = (previousStatus != null) ? previousStatus.NRPNValue : null;
                 bool hasPreviousValue = previousValue != null && previousValue.ContainsKey(control.Key);
                 if (hasPreviousValue && previousValue[control.Key] == control.Value)
+                {
+                    continue;
+                }
+                if (excludeStatus != null && excludeStatus.NRPNValue.ContainsKey(control.Key))
                 {
                     continue;
                 }
@@ -273,7 +288,10 @@ namespace MidiSplit
             // pitch bend
             if (PitchBendValue.HasValue && (previousStatus == null || previousStatus.PitchBendValue != PitchBendValue))
             {
-                AddPitchWheelMessage(midiTrack, absoluteTime, channel, PitchBendValue.Value);
+                if (excludeStatus == null || !excludeStatus.PitchBendValue.HasValue)
+                {
+                    AddPitchWheelMessage(midiTrack, absoluteTime, channel, PitchBendValue.Value);
+                }
             }
 
             // RPN

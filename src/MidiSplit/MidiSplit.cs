@@ -360,7 +360,13 @@ namespace MidiSplit
                         // copy separated controller values
                         if (copySeparatedControllers)
                         {
-                            status[channel].AddUpdatedMidiEvents(newTrackInfo.Track, newTrackInfo.Status, midiEvent.AbsoluteTime, channel);
+                            // readahead initialization events for new track (read until the first note on)
+                            MidiChannelStatus initStatus = new MidiChannelStatus();
+                            initStatus.DataEntryForRPN = status[channel].DataEntryForRPN;
+                            initStatus.ParseMidiEvents(midiEventListIn.Skip(midiEventIndex).TakeWhile(ev =>
+                                !(ev.Message is MidiChannelMessage && ((MidiChannelMessage)ev.Message).Command == MidiChannelCommand.NoteOn)), midiChannel);
+
+                            status[channel].AddUpdatedMidiEvents(newTrackInfo.Track, newTrackInfo.Status, midiEvent.AbsoluteTime, channel, initStatus);
                         }
 
                         // save current controller values
@@ -399,7 +405,7 @@ namespace MidiSplit
                     }
 
                     // update channel status
-                    status[midiChannel].ParseMidiEvents(midiEventListIn.Skip(midiEventIndex).Take(1));
+                    status[midiChannel].ParseMidiEvents(midiEventListIn.Skip(midiEventIndex).Take(1), midiChannel);
                 }
                 else
                 {
