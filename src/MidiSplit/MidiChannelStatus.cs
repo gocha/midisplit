@@ -294,55 +294,66 @@ namespace MidiSplit
                 }
             }
 
-            // RPN
-            foreach (var control in updatedRPNValue)
+            // Swap RPN/NRPN order by current selection
+            bool writeRPN = !DataEntryForRPN;
+            for (int selectRPNorNRPN = 0; selectRPNorNRPN < 2; selectRPNorNRPN++)
             {
-                // process write for current RPN at last, not now
-                if (control.Key == CurrentRPN)
+                if (writeRPN)
                 {
-                    continue;
-                }
+                    // RPN
+                    foreach (var control in updatedRPNValue)
+                    {
+                        // process write for current RPN at last, not now
+                        if (control.Key == CurrentRPN)
+                        {
+                            continue;
+                        }
 
-                AddRPNMessage(midiTrack, absoluteTime, channel, control.Key, control.Value);
-            }
-            // restore current RPN
-            if (CurrentRPN.HasValue)
-            {
-                if (updatedRPNValue.ContainsKey(CurrentRPN.Value))
-                {
-                    AddRPNMessage(midiTrack, absoluteTime, channel, CurrentRPN.Value, RPNValue[CurrentRPN.Value]);
+                        AddRPNMessage(midiTrack, absoluteTime, channel, control.Key, control.Value);
+                    }
+                    // restore current RPN
+                    if (CurrentRPN.HasValue)
+                    {
+                        if (updatedRPNValue.ContainsKey(CurrentRPN.Value))
+                        {
+                            AddRPNMessage(midiTrack, absoluteTime, channel, CurrentRPN.Value, RPNValue[CurrentRPN.Value]);
+                        }
+                        else
+                        {
+                            AddRPNMessage(midiTrack, absoluteTime, channel, CurrentRPN.Value, null);
+                        }
+                    }
                 }
                 else
                 {
-                    AddRPNMessage(midiTrack, absoluteTime, channel, CurrentRPN.Value, null);
-                }
-            }
+                    // NRPN
+                    foreach (var control in updatedNRPNValue)
+                    {
+                        IDictionary<int, int> previousValue = (previousStatus != null) ? previousStatus.NRPNValue : null;
+                        bool hasPreviousValue = previousValue != null && previousValue.ContainsKey(control.Key);
 
-            // NRPN
-            foreach (var control in updatedNRPNValue)
-            {
-                IDictionary<int, int> previousValue = (previousStatus != null) ? previousStatus.NRPNValue : null;
-                bool hasPreviousValue = previousValue != null && previousValue.ContainsKey(control.Key);
+                        // process write for current NRPN at last, not now
+                        if (control.Key == CurrentNRPN)
+                        {
+                            continue;
+                        }
 
-                // process write for current NRPN at last, not now
-                if (control.Key == CurrentNRPN)
-                {
-                    continue;
+                        AddNRPNMessage(midiTrack, absoluteTime, channel, control.Key, control.Value);
+                    }
+                    // restore current NRPN
+                    if (CurrentNRPN.HasValue)
+                    {
+                        if (updatedNRPNValue.ContainsKey(CurrentNRPN.Value))
+                        {
+                            AddNRPNMessage(midiTrack, absoluteTime, channel, CurrentNRPN.Value, NRPNValue[CurrentNRPN.Value]);
+                        }
+                        else
+                        {
+                            AddNRPNMessage(midiTrack, absoluteTime, channel, CurrentNRPN.Value, null);
+                        }
+                    }
                 }
-
-                AddNRPNMessage(midiTrack, absoluteTime, channel, control.Key, control.Value);
-            }
-            // restore current NRPN
-            if (CurrentNRPN.HasValue)
-            {
-                if (updatedNRPNValue.ContainsKey(CurrentNRPN.Value))
-                {
-                    AddNRPNMessage(midiTrack, absoluteTime, channel, CurrentNRPN.Value, NRPNValue[CurrentNRPN.Value]);
-                }
-                else
-                {
-                    AddNRPNMessage(midiTrack, absoluteTime, channel, CurrentNRPN.Value, null);
-                }
+                writeRPN = !writeRPN;
             }
         }
     }
