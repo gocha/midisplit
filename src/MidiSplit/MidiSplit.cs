@@ -395,6 +395,8 @@ namespace MidiSplit
                                 channelParam = midiEventMapTo[firstChannelEventIndex[midiChannel]];
                                 channelParam.BankNumber = currentBankNumber[midiChannel];
                                 channelParam.ProgramNumber = currentProgramNumber[midiChannel];
+
+                                midiEventMapTo[firstChannelEventIndex[midiChannel]] = channelParam;
                                 lastTrackMapIndex[midiChannel] = firstChannelEventIndex[midiChannel];
                             }
                             else
