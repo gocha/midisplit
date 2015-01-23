@@ -211,7 +211,7 @@ namespace MidiSplit
             IList<MTrkChunk> tracks = new List<MTrkChunk>();
             foreach (MTrkChunk midiTrackIn in midiInData.Tracks)
             {
-                foreach (MTrkChunk midiTrackOut in MidiSplit.SplitMidiTrack(midiTrackIn, true, percMidiChannels, percProgChanges))
+                foreach (MTrkChunk midiTrackOut in MidiSplit.SplitMidiTrack(midiTrackIn, copySeparatedControllers, percMidiChannels, percProgChanges))
                 {
                     tracks.Add(midiTrackOut);
                 }
