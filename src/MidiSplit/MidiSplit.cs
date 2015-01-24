@@ -604,7 +604,7 @@ namespace MidiSplit
                     if (midiEvent.Message is MidiMetaMessage)
                     {
                         MidiMetaMessage metaMessage = midiEvent.Message as MidiMetaMessage;
-                        if ((byte)metaMessage.MetaType == 21) // Unofficial port select
+                        if ((byte)metaMessage.MetaType == 0x21) // Unofficial port select
                         {
                             broadcastToAllTracks = true;
                         }
