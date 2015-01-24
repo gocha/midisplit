@@ -454,7 +454,7 @@ namespace MidiSplit
                 {
                     if (midiEventMapTo.ContainsKey(midiEventIndex))
                     {
-                        Console.WriteLine("event: " + midiEventIndex + ", channel: " + midiEventMapTo[midiEventIndex].MidiChannel + ", bank: " + midiEventMapTo[midiEventIndex].BankNumber + ", program: " + midiEventMapTo[midiEventIndex].ProgramNumber + ", note: " + midiEventMapTo[midiEventIndex].NoteNumber);
+                        //Console.WriteLine("event: " + midiEventIndex + ", channel: " + midiEventMapTo[midiEventIndex].MidiChannel + ", bank: " + midiEventMapTo[midiEventIndex].BankNumber + ", program: " + midiEventMapTo[midiEventIndex].ProgramNumber + ", note: " + midiEventMapTo[midiEventIndex].NoteNumber);
 
                         // remove if item is exactly identical to previos one
                         if (lastChannelParam.HasValue && midiEventMapTo[midiEventIndex].Equals(lastChannelParam.Value))
