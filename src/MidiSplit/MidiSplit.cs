@@ -270,7 +270,7 @@ namespace MidiSplit
             {
                 newBankNumber[channel] = 0;
                 currentBankNumber[channel] = 0;
-                currentProgramNumber[channel] = 0;
+                currentProgramNumber[channel] = -1;
                 firstChannelEventIndex[channel] = -1;
                 lastNoteNumber[channel] = -1;
                 boundaryEventIndex[channel] = 0;
@@ -293,12 +293,14 @@ namespace MidiSplit
                 absoluteEndTime = midiEvent.AbsoluteTime;
 
                 // dispatch message
+                const int DEFAULT_PROGNUMBER = 0;
                 if (midiEvent.Message is MidiChannelMessage)
                 {
                     MidiChannelMessage channelMessage = midiEvent.Message as MidiChannelMessage;
                     byte midiChannel = channelMessage.MidiChannel;
+                    int currentProgNumber = (currentProgramNumber[midiChannel] != -1) ? currentProgramNumber[midiChannel] : DEFAULT_PROGNUMBER;
                     bool percussion = percMidiChannels.Contains(midiChannel) ||
-                        percProgChanges.Contains(currentProgramNumber[midiChannel] | (currentBankNumber[midiChannel] << 7));
+                        percProgChanges.Contains(currentProgNumber | (currentBankNumber[midiChannel] << 7));
 
                     // remember the first channel messeage index
                     if (firstChannelEventIndex[midiChannel] == -1)
@@ -310,7 +312,7 @@ namespace MidiSplit
                         MTrkChannelParam channelParam = new MTrkChannelParam();
                         channelParam.MidiChannel = midiChannel;
                         channelParam.BankNumber = 0;
-                        channelParam.ProgramNumber = 0;
+                        channelParam.ProgramNumber = DEFAULT_PROGNUMBER;
                         channelParam.NoteNumber = -1;
                         midiEventMapTo[midiEventIndex] = channelParam;
                     }
@@ -350,13 +352,18 @@ namespace MidiSplit
                         byte noteNumber = channelMessage.Parameter1;
                         midiNoteOn[midiChannel, noteNumber]++;
 
+                        if (currentProgramNumber[midiChannel] == -1)
+                        {
+                            currentProgramNumber[midiChannel] = DEFAULT_PROGNUMBER;
+                        }
+
+                        if (lastTrackMapIndex[midiChannel] == -1)
+                        {
+                            lastTrackMapIndex[midiChannel] = firstChannelEventIndex[midiChannel];
+                        }
+
                         if (percussion)
                         {
-                            if (lastTrackMapIndex[midiChannel] == -1)
-                            {
-                                lastTrackMapIndex[midiChannel] = firstChannelEventIndex[midiChannel];
-                            }
-
                             // check the most recent marker
                             MTrkChannelParam channelParam = midiEventMapTo[lastTrackMapIndex[midiChannel]];
                             if (channelParam.NoteNumber == -1)
@@ -392,6 +399,7 @@ namespace MidiSplit
                             MTrkChannelParam channelParam;
                             if (lastTrackMapIndex[midiChannel] == -1)
                             {
+                                // update the first checkpoint
                                 channelParam = midiEventMapTo[firstChannelEventIndex[midiChannel]];
                                 channelParam.BankNumber = currentBankNumber[midiChannel];
                                 channelParam.ProgramNumber = currentProgramNumber[midiChannel];
@@ -401,6 +409,7 @@ namespace MidiSplit
                             }
                             else
                             {
+                                // put new checkpoint
                                 channelParam = new MTrkChannelParam();
                                 channelParam.MidiChannel = midiChannel;
                                 channelParam.BankNumber = currentBankNumber[midiChannel];
@@ -445,7 +454,7 @@ namespace MidiSplit
                 {
                     if (midiEventMapTo.ContainsKey(midiEventIndex))
                     {
-                        //Console.WriteLine("event: " + midiEventIndex + ", channel: " + midiEventMapTo[midiEventIndex].MidiChannel + ", bank: " + midiEventMapTo[midiEventIndex].BankNumber + ", program: " + midiEventMapTo[midiEventIndex].ProgramNumber + ", note: " + midiEventMapTo[midiEventIndex].NoteNumber);
+                        Console.WriteLine("event: " + midiEventIndex + ", channel: " + midiEventMapTo[midiEventIndex].MidiChannel + ", bank: " + midiEventMapTo[midiEventIndex].BankNumber + ", program: " + midiEventMapTo[midiEventIndex].ProgramNumber + ", note: " + midiEventMapTo[midiEventIndex].NoteNumber);
 
                         // remove if item is exactly identical to previos one
                         if (lastChannelParam.HasValue && midiEventMapTo[midiEventIndex].Equals(lastChannelParam.Value))
