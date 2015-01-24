@@ -11,5 +11,7 @@ Note
 ------------------------
 
 - MidiSplit splits track when it finds a program change. Channel messages excluding notes (e.g. control changes) located before the program change, will also be moved to the new track.
+    - By `-cs` option, MidiSplit can copy control changes, that are located in other tracks, to switching point.
 - Non-channel messages (e.g. sysex) will be kept in the input track.
 - Rhythm channel is processed as same as a melody channel.
+    - By `-sp` option, MidiSplit can divide a melody into tracks by note numbers. (example: `-sp "ch10, prg127:0:1"`)
