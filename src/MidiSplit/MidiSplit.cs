@@ -14,6 +14,11 @@ namespace MidiSplit
 {
     public class MidiSplit
     {
+        public const string NAME = "MidiSplit";
+        public const string VERSION = "1.2";
+        public const string AUTHOR = "gocha";
+        public const string URL = "http://github.com/gocha/midisplit";
+
         public static int Main(string[] args)
         {
             try
@@ -183,6 +188,10 @@ namespace MidiSplit
 
         public static void ShowUsage()
         {
+            Console.WriteLine("# " + NAME);
+            Console.WriteLine();
+            Console.WriteLine(NAME + " version " + VERSION + " by " + AUTHOR + " <" + URL + ">");
+            Console.WriteLine();
             Console.WriteLine("Usage: MidiSplit (options) input.mid output.mid");
             Console.WriteLine();
             Console.WriteLine("### Options");
