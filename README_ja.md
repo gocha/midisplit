@@ -1,5 +1,6 @@
 MidiSplit
 =========
+[![AppVeyor Build Status](https://ci.appveyor.com/api/projects/status/fbysw0bkfuy18ubq/branch/master?svg=true)](https://ci.appveyor.com/project/gocha/midisplit/branch/master)
 
 MIDI トラックをプログラムナンバー（楽器）ごとに分割します。
 
