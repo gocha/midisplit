@@ -1,0 +1,25 @@
+image: Visual Studio 2017
+
+environment:
+  matrix:
+  - config: Release
+    APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2017
+
+init:
+  - git config --global core.autocrlf true
+
+build_script:
+  - msbuild src\MidiSplit\MidiSplit.sln /t:build /p:Configuration=%config% /m
+
+after_build:
+  - ps: $env:gitrev = git describe --tags
+  - ps: $env:my_version = "$env:gitrev"
+  - set package_name=midisplit-%my_version%
+  - if not exist bin mkdir bin
+  - move src\MidiSplit\bin\%config%\*.* bin
+  - del bin\*.pdb
+  - 7z a -mx9 %package_name%.7z bin doc README.md README_ja.md LICENSE
+
+artifacts:
+  - path: $(package_name).7z
+    name: $(my_version)
