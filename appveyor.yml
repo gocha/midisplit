@@ -9,7 +9,7 @@ init:
   - git config --global core.autocrlf true
 
 build_script:
-  - msbuild src\MidiSplit\MidiSplit.sln /t:build /p:Configuration=%config% /m
+  - msbuild src\MidiSplit\MidiSplit.sln /t:build /p:Configuration=%config% /m /logger:"C:\Program Files\AppVeyor\BuildAgent\Appveyor.MSBuildLogger.dll"
 
 after_build:
   - ps: $env:gitrev = git describe --tags
