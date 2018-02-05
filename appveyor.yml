@@ -1,3 +1,5 @@
+version: 1.2.{build}
+
 image: Visual Studio 2017
 
 environment:
@@ -6,7 +8,7 @@ environment:
     APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2017
 
 init:
-  - git config --global core.autocrlf true
+  - git config --global core.autocrlf input
 
 build_script:
   - msbuild src\MidiSplit\MidiSplit.sln /t:build /p:Configuration=%config% /m /logger:"C:\Program Files\AppVeyor\BuildAgent\Appveyor.MSBuildLogger.dll"
