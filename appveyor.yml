@@ -20,8 +20,8 @@ after_build:
   - if not exist bin mkdir bin
   - move src\MidiSplit\bin\%config%\*.* bin
   - del bin\*.pdb
-  - 7z a -mx9 %package_name%.7z bin doc README.md README_ja.md LICENSE
+  - 7z a %package_name%.zip bin doc README.md README_ja.md LICENSE
 
 artifacts:
-  - path: $(package_name).7z
+  - path: $(package_name).zip
     name: $(my_version)
