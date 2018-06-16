@@ -15,7 +15,7 @@ namespace MidiSplit
     public class MidiSplit
     {
         public const string NAME = "MidiSplit";
-        public const string VERSION = "1.2";
+        public const string VERSION = "1.2.5";
         public const string AUTHOR = "gocha";
         public const string URL = "http://github.com/gocha/midisplit";
 
@@ -237,6 +237,11 @@ namespace MidiSplit
             public int ProgramNumber;
             public int BankNumber;
             public int NoteNumber;
+
+            public override string ToString()
+            {
+                return "(" + this.GetType().Name + ")[MidiChannel: " + MidiChannel + ", ProgramNumber: " + ProgramNumber + ", BankNumber: " + BankNumber + ", NoteNumber: " + NoteNumber + "]";
+            }
         }
 
         protected class MTrkChunkWithInfo
@@ -249,6 +254,8 @@ namespace MidiSplit
 
         static IEnumerable<MTrkChunk> SplitMidiTrack(MTrkChunk midiTrackIn, bool copySeparatedControllers, IList<int> percMidiChannels, IList<int> percProgChanges)
         {
+            bool verbose = false;
+
             if (percMidiChannels == null)
             {
                 percMidiChannels = new List<int>();
@@ -351,7 +358,9 @@ namespace MidiSplit
                             // save the trigger timing
                             if (allNotesOff)
                             {
-                                boundaryEventIndex[midiChannel] = midiEventIndex + 1;
+                                // find the next channel message of the same channel
+                                boundaryEventIndex[midiChannel] = midiEventIndex + 1 + midiEventListIn.Skip(midiEventIndex + 1).TakeWhile(ev =>
+                                    !(ev.Message is MidiChannelMessage && ((MidiChannelMessage)ev.Message).MidiChannel == midiChannel)).Count();
                             }
                         }
                     }
@@ -389,10 +398,25 @@ namespace MidiSplit
 
                                 lastTrackMapIndex[midiChannel] = boundaryEventIndex[midiChannel];
                             }
-                            midiEventMapTo[lastTrackMapIndex[midiChannel]] = channelParam;
+
+                            try
+                            {
+                                midiEventMapTo.Add(lastTrackMapIndex[midiChannel], channelParam);
+                            }
+                            catch (ArgumentException e)
+                            {
+                                // debug output and fallback
+                                int key = lastTrackMapIndex[midiChannel];
+                                Console.WriteLine(e);
+                                Console.WriteLine("   " + key + " => " + midiEventMapTo[key]);
+                                Console.WriteLine("      is overwritten by " + channelParam);
+                                midiEventMapTo[key] = channelParam;
+                            }
                         }
 
-                        boundaryEventIndex[midiChannel] = midiEventIndex + 1;
+                        // find the next channel message of the same channel
+                        boundaryEventIndex[midiChannel] = midiEventIndex + 1 + midiEventListIn.Skip(midiEventIndex + 1).TakeWhile(ev =>
+                            !(ev.Message is MidiChannelMessage && ((MidiChannelMessage)ev.Message).MidiChannel == midiChannel)).Count();
                     }
                     else if (channelMessage.Command == MidiChannelCommand.ProgramChange)
                     {
@@ -425,12 +449,26 @@ namespace MidiSplit
                                 channelParam.ProgramNumber = currentProgramNumber[midiChannel];
                                 channelParam.NoteNumber = -1; // will be filled later
 
-                                midiEventMapTo[boundaryEventIndex[midiChannel]] = channelParam;
+                                try
+                                {
+                                    midiEventMapTo.Add(boundaryEventIndex[midiChannel], channelParam);
+                                }
+                                catch (ArgumentException e)
+                                {
+                                    // debug output and fallback
+                                    int key = boundaryEventIndex[midiChannel];
+                                    Console.WriteLine(e);
+                                    Console.WriteLine("   " + key + " => " + midiEventMapTo[key]);
+                                    Console.WriteLine("      is overwritten by " + channelParam);
+                                    midiEventMapTo[key] = channelParam;
+                                }
                                 lastTrackMapIndex[midiChannel] = boundaryEventIndex[midiChannel];
                             }
 
                             // update the trigger timing
-                            boundaryEventIndex[midiChannel] = midiEventIndex + 1;
+                            // find the next channel message of the same channel
+                            boundaryEventIndex[midiChannel] = midiEventIndex + 1 + midiEventListIn.Skip(midiEventIndex + 1).TakeWhile(ev =>
+                                !(ev.Message is MidiChannelMessage && ((MidiChannelMessage)ev.Message).MidiChannel == midiChannel)).Count();
                         }
                     }
                     else if (channelMessage.Command == MidiChannelCommand.ControlChange)
@@ -463,8 +501,6 @@ namespace MidiSplit
                 {
                     if (midiEventMapTo.ContainsKey(midiEventIndex))
                     {
-                        //Console.WriteLine("event: " + midiEventIndex + ", channel: " + midiEventMapTo[midiEventIndex].MidiChannel + ", bank: " + midiEventMapTo[midiEventIndex].BankNumber + ", program: " + midiEventMapTo[midiEventIndex].ProgramNumber + ", note: " + midiEventMapTo[midiEventIndex].NoteNumber);
-
                         // remove if item is exactly identical to previos one
                         if (lastChannelParam.HasValue && midiEventMapTo[midiEventIndex].Equals(lastChannelParam.Value))
                         {
@@ -480,8 +516,12 @@ namespace MidiSplit
                 // create output tracks
                 foreach (KeyValuePair<int, MTrkChannelParam> aMidiEventMapTo in midiEventMapTo)
                 {
-                    //Console.WriteLine(String.Format("Event: {0}, Channel: {1}, Bank: {2}, Program: {3}",
-                    //    aMidiEventMapTo.Key, aMidiEventMapTo.Value.MidiChannel, aMidiEventMapTo.Value.BankNumber, aMidiEventMapTo.Value.ProgramNumber));
+                    if (verbose)
+                    {
+                        Console.WriteLine(String.Format("[MidiEventMap] Index: {0} => MidiChannel: {1}, BankNumber: {2}, ProgramNumber: {3}, NoteNumber: {4}",
+                            aMidiEventMapTo.Key, aMidiEventMapTo.Value.MidiChannel, aMidiEventMapTo.Value.BankNumber, aMidiEventMapTo.Value.ProgramNumber, aMidiEventMapTo.Value.NoteNumber));
+                    }
+
                     if (!trackAssociatedWith.ContainsKey(aMidiEventMapTo.Value))
                     {
                         MTrkChunkWithInfo trackInfo = new MTrkChunkWithInfo();
@@ -531,49 +571,65 @@ namespace MidiSplit
                 MTrkChunk targetTrack = null;
                 bool broadcastToAllTracks = false;
 
+                if (verbose)
+                {
+                    Console.Write("[MidiEvent] Index: " + midiEventIndex);
+                    Console.Write(", AbsoluteTime: " + midiEvent.AbsoluteTime);
+                    Console.Write(", MessageType: " + midiEvent.Message.GetType().Name);
+                    if (midiEvent.Message is MidiChannelMessage)
+                    {
+                        MidiChannelMessage channelMessage = midiEvent.Message as MidiChannelMessage;
+                        Console.Write(", MidiChannel: " + channelMessage.MidiChannel);
+                        Console.Write(", Command: " + channelMessage.Command);
+                        Console.Write(", Parameter1: " + channelMessage.Parameter1);
+                        Console.Write(", Parameter2: " + channelMessage.Parameter2);
+                    }
+                    Console.WriteLine();
+                }
+
+                // switch output track if necessary
+                if (midiEventMapTo.ContainsKey(midiEventIndex))
+                {
+                    MTrkChannelParam aMidiEventMapTo = midiEventMapTo[midiEventIndex];
+                    MTrkChunkWithInfo newTrackInfo = trackAssociatedWith[aMidiEventMapTo];
+                    int channel = aMidiEventMapTo.MidiChannel;
+
+                    MTrkChunkWithInfo oldTrackInfo = null;
+                    if (currentOutputTrackInfo.ContainsKey(channel))
+                    {
+                        oldTrackInfo = currentOutputTrackInfo[channel];
+                    }
+
+                    if (oldTrackInfo != newTrackInfo)
+                    {
+                        // switch output track
+                        currentOutputTrackInfo[channel] = newTrackInfo;
+
+                        // copy separated controller values
+                        if (copySeparatedControllers)
+                        {
+                            // readahead initialization events for new track (read until the first note on)
+                            MidiChannelStatus initStatus = new MidiChannelStatus();
+                            initStatus.DataEntryForRPN = status[channel].DataEntryForRPN;
+                            initStatus.ParseMidiEvents(midiEventListIn.Skip(midiEventIndex).TakeWhile(ev =>
+                                !(ev.Message is MidiChannelMessage && ((MidiChannelMessage)ev.Message).Command == MidiChannelCommand.NoteOn)), (byte)channel);
+
+                            status[channel].AddUpdatedMidiEvents(newTrackInfo.Track, newTrackInfo.Status, midiEvent.AbsoluteTime, channel, initStatus);
+                        }
+
+                        // save current controller values
+                        if (oldTrackInfo != null)
+                        {
+                            oldTrackInfo.Status = new MidiChannelStatus(status[channel]);
+                        }
+                    }
+                }
+
                 // dispatch message
                 if (midiEvent.Message is MidiChannelMessage)
                 {
                     MidiChannelMessage channelMessage = midiEvent.Message as MidiChannelMessage;
                     byte midiChannel = channelMessage.MidiChannel;
-
-                    // switch output track if necessary
-                    if (midiEventMapTo.ContainsKey(midiEventIndex))
-                    {
-                        MTrkChannelParam aMidiEventMapTo = midiEventMapTo[midiEventIndex];
-                        MTrkChunkWithInfo newTrackInfo = trackAssociatedWith[aMidiEventMapTo];
-                        int channel = aMidiEventMapTo.MidiChannel;
-
-                        MTrkChunkWithInfo oldTrackInfo = null;
-                        if (currentOutputTrackInfo.ContainsKey(channel))
-                        {
-                            oldTrackInfo = currentOutputTrackInfo[channel];
-                        }
-
-                        if (oldTrackInfo != newTrackInfo)
-                        {
-                            // switch output track
-                            currentOutputTrackInfo[channel] = newTrackInfo;
-
-                            // copy separated controller values
-                            if (copySeparatedControllers)
-                            {
-                                // readahead initialization events for new track (read until the first note on)
-                                MidiChannelStatus initStatus = new MidiChannelStatus();
-                                initStatus.DataEntryForRPN = status[channel].DataEntryForRPN;
-                                initStatus.ParseMidiEvents(midiEventListIn.Skip(midiEventIndex).TakeWhile(ev =>
-                                    !(ev.Message is MidiChannelMessage && ((MidiChannelMessage)ev.Message).Command == MidiChannelCommand.NoteOn)), midiChannel);
-
-                                status[channel].AddUpdatedMidiEvents(newTrackInfo.Track, newTrackInfo.Status, midiEvent.AbsoluteTime, channel, initStatus);
-                            }
-
-                            // save current controller values
-                            if (oldTrackInfo != null)
-                            {
-                                oldTrackInfo.Status = new MidiChannelStatus(status[channel]);
-                            }
-                        }
-                    }
 
                     // determine output track
                     targetTrack = currentOutputTrackInfo[midiChannel].Track;
