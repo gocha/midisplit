@@ -197,7 +197,7 @@ namespace MidiSplit
             Console.WriteLine("### Options");
             Console.WriteLine();
             Console.WriteLine("- `-cs` `--copy-separated`: Copy controller events that are updated by other tracks.");
-            Console.WriteLine("- `-sp targets` `--split-note targets`: Split given channel/instrument into each note numbers. Example: `-p \"ch10, prg127, prg127:0:1\"`");
+            Console.WriteLine("- `-sp targets` `--split-note targets`: Split given channel/instrument into each note numbers. Example: `-sp \"ch10, prg127, prg127:0:1\"`");
         }
 
         static MidiFileData SplitMidiFile(MidiFileData midiInData, bool copySeparatedControllers, IList<int> percMidiChannels, IList<int> percProgChanges)
